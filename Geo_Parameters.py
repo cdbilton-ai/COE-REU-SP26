@@ -1,5 +1,5 @@
 # Geo Parameters
-
+#Clean up
 import pandas as pd
 import os  # To check if files exist
 
