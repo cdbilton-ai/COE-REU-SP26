@@ -2,6 +2,7 @@
 from paraview.simple import *
 import os
 import sys
+import ensightreader
 
 # ================================================================
 # 1. INTERACTIVE PROMPT
