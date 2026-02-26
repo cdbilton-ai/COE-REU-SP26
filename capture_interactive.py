@@ -2,7 +2,6 @@
 from paraview.simple import *
 import os
 import sys
-import ensightreader
 
 # ================================================================
 # 1. INTERACTIVE PROMPT
@@ -20,16 +19,16 @@ input_file = raw_path.strip().replace('"', '').replace("'", "")
 
 # 2. Verify file existence
 if not os.path.exists(input_file):
-    print("\n[ERROR] File not found!")
-    print(f"Looked for: {input_file}")
+    print(f"\n[ERROR] File not found: {input_file}")
     sys.exit(1)
-
-# 3. Determine Output Directory automatically
-# If input is 'C:/Users/data/run_1/car.stl', output becomes 'C:/Users/data/run_1'
 output_dir = os.path.dirname(input_file)
-print(f"\nTarget File:   {os.path.basename(input_file)}")
-print(f"Saving Images: {output_dir}")
-print("-" * 60)
+base_name = os.path.splitext(os.path.basename(input_file))[0]
+output_vtk = os.path.join(output_dir, f"{base_name}_converted.vtk")
+results_dir = os.path.join(output_dir, "Results")
+
+if not os.path.exists(results_dir):
+    os.makedirs(results_dir)
+    print(f"\n[INFO] Created new folder for images: {results_dir}")
 
 # ================================================================
 # 2. LOAD & PREPARE
@@ -46,37 +45,38 @@ except Exception as e:
     print(f"[ERROR] Could not open file. Details: {e}")
     sys.exit(1)
 
-# Get/Create View
+# ================================================================
+# 3. VARIABLES TO PLOT 
+# ================================================================
+# EDIT THIS LIST: Add or remove the exact variable names from your simulation
+variables_to_plot = ["pressure", "rel_velocity_magnitude", "pressure_coefficient"]
+
+# ================================================================
+# 4. VISUALIZATION SETUP
+# ================================================================
+print("\n4. Setting up the 3D Scene...")
+
 renderView = GetActiveView()
 if not renderView:
     renderView = CreateView('RenderView')
 
-# Clear old data (safety)
 HideAll(renderView)
-
-# Show new data
 display = Show(source, renderView)
 display.Representation = 'Surface'
 
-# Visual Settings
 renderView.ViewSize = [1920, 1080]
-renderView.Background = [1, 1, 1] # White Background
-
-# Optional: Add faint axis grid or color if needed
-# display.DiffuseColor = [0.8, 0.8, 0.8] # Light gray for STLs
+renderView.Background = [1, 1, 1] 
 
 # ================================================================
-# 3. SNAPSHOT LOGIC
+# 5. SCREENSHOT LOGIC
 # ================================================================
-
-def snap_view(view_name, camera_pos, view_up):
-    print(f"  - Capturing {view_name}...")
+def snap_view(file_suffix, camera_pos, view_up):
+    print(f"   - Capturing {file_suffix}...")
     
     ResetCamera()
     center = renderView.CameraFocalPoint
     dist = 100 
     
-    # Calculate Camera Position
     new_pos = [
         center[0] + camera_pos[0] * dist,
         center[1] + camera_pos[1] * dist,
@@ -90,35 +90,55 @@ def snap_view(view_name, camera_pos, view_up):
     ResetCamera()
     Render()
     
-    # Construct filename
-    # e.g. drivaer_front.png
-    base_name = os.path.splitext(os.path.basename(input_file))[0]
-    filename = f"{base_name}_{view_name}.png"
-    full_path = os.path.join(output_dir, filename)
-    
+    filename = f"{base_name}_{file_suffix}.png"
+    full_path = os.path.join(results_dir, filename)
     SaveScreenshot(full_path, renderView)
 
 # ================================================================
-# 4. EXECUTE
+# 6. LOOP THROUGH VARIABLES & TAKE PHOTOS
 # ================================================================
+print("\n5. Generating colored screenshots...")
 
-print("Starting Capture...")
+# First, take the solid gray baseline photos just in case
+print("\n--- Processing Baseline (Solid Gray) ---")
+ColorBy(display, None)
+display.DiffuseColor = [0.8, 0.8, 0.8]
+display.SetScalarBarVisibility(renderView, False)
 
-# Front View
-snap_view("front",     [-1, 0, 0],   [1, 0, 1])
+snap_view("Gray_front",     [0, 0, 1],   [0, 1, 0])
+snap_view("Gray_side",      [1, 0, 0],   [0, 1, 0])
+snap_view("Gray_front_iso", [1, 1, 1],   [0, 1, 0])
 
-# Side View
-snap_view("side",      [0, -1, 0],   [0, 0, 0])
-
-# Top View
-snap_view("top",       [0, 0, 1],   [0, 0, 0])
-
-# Front ISO
-snap_view("front_iso", [-1, 1, 1],   [0, 0, 1])
-
-# Rear ISO
-snap_view("rear_iso",  [1, 1, 1], [0, 0, 1])
+# Now loop through the CFD variables
+for var in variables_to_plot:
+    print(f"\n--- Processing Variable: {var} ---")
+    
+    try:
+        # 1. Color by the variable. 
+        # ('POINTS', var) is standard for most CFD nodes. 
+        # If your data is element-based, change 'POINTS' to 'CELLS'
+        ColorBy(display, ('POINTS', var))
+        
+        # 2. Rescale the color map to fit the actual min/max of this variable
+        display.RescaleTransferFunctionToDataRange(True, False)
+        
+        # 3. Turn on the Color Legend (Scalar Bar)
+        display.SetScalarBarVisibility(renderView, True)
+        
+        # 4. Take the pictures
+        snap_view(f"{var}_front",     [0, 0, 1],   [0, 1, 0])
+        snap_view(f"{var}_side",      [1, 0, 0],   [0, 1, 0])
+        snap_view(f"{var}_top",       [0, 1, 0],   [0, 0, -1])
+        snap_view(f"{var}_front_iso", [1, 1, 1],   [0, 1, 0])
+        snap_view(f"{var}_rear_iso",  [-1, 1, -1], [0, 1, 0])
+        
+        # 5. Hide the legend before moving to the next variable
+        display.SetScalarBarVisibility(renderView, False)
+        
+    except Exception as e:
+        print(f"   [WARNING] Could not process '{var}'. Is it spelled correctly in the EnSight file? Skipping...")
+        print(f"   Details: {e}")
 
 print("="*60)
-print("DONE! Check your folder for the images.")
+print("SUCCESS! All conversions and variable images are done.")
 print("="*60)
