@@ -1,143 +1,543 @@
+"""
+Multi-Format CFD Visualizer
+Supports: OpenFOAM (.foam, .openfoam, .simplefoam) and ANSYS EnSight (.encas, .case)
+Features: Native Graphs, PDF binding, Auto-cleanup, Iso-Surfaces, Info-Box Overlays, and Flattened PVDs!
+"""
+
 from paraview.simple import *
 import os
 import sys
+import re
+import shutil
+import xml.etree.ElementTree as ET
 
-# ================================================================
-# 1. INTERACTIVE PROMPT
-# ================================================================
-print("="*60)
-print("  PARAVIEW BATCH SCREENSHOT TOOL")
-print("="*60)
-print("Instruction: Drag and drop your .stl or .vtu file here and press Enter.")
-print("")
-
-# 1. Get the file path from the user
-# We use .strip() to remove the quotes ("") that Windows adds when dragging files
-raw_path = input("File Path > ")
-input_file = raw_path.strip().replace('"', '').replace("'", "")
-
-# 2. Verify file existence
-if not os.path.exists(input_file):
-    print(f"\n[ERROR] File not found: {input_file}")
+# --- Pillow Imports Moved to Top for Overlays ---
+try:
+    from PIL import Image, ImageDraw, ImageFont
+except ImportError:
+    print("[ERROR] Required library 'Pillow' is not installed in ParaView.")
     sys.exit(1)
-output_dir = os.path.dirname(input_file)
-base_name = os.path.splitext(os.path.basename(input_file))[0]
-output_vtk = os.path.join(output_dir, f"{base_name}_converted.vtk")
-results_dir = os.path.join(output_dir, "Images")
-
-if not os.path.exists(results_dir):
-    os.makedirs(results_dir)
-    print(f"\n[INFO] Created new folder for images: {results_dir}")
 
 # ================================================================
-# 2. LOAD & PREPARE
+# 1. SETUP & DIRECTORY MANAGEMENT
 # ================================================================
+raw_path = input("Drag and drop your .encas, .foam, .openfoam, or .simplefoam file here > ")
+
+clean_path = raw_path.replace('"', '').replace("'", "").strip()
+input_file = os.path.abspath(clean_path)
+
+print(f"\n[INFO] Attempting to load: {input_file}")
+
+if not os.path.exists(input_file):
+    print(f"[ERROR] File not found on disk: {input_file}")
+    sys.exit(1)
+
+case_dir = os.path.dirname(input_file)
+file_extension = os.path.splitext(input_file)[1].lower()
+
+results_dir = os.path.join(case_dir, "Images")
+os.makedirs(results_dir, exist_ok=True)
+
+run_numbers = [0]
+for f in os.listdir(results_dir):
+    match = re.search(r'Run_(\d+)', f)
+    if match: run_numbers.append(int(match.group(1)))
+next_run_num = max(run_numbers) + 1
+
+run_dir = os.path.join(results_dir, f"Run_{next_run_num}")
+os.makedirs(run_dir, exist_ok=True)
+
+print(f"========================================================")
+print(f"[INFO] ALL FILES WILL BE SAVED TO: \n{run_dir}")
+print(f"========================================================\n")
+
+# Global Settings storage
+run_settings = {"Input File": input_file, "Regions": [], "Variables": [], "Region_Slices": {}, "Iso_Surface": "None"}
+cfd_data = {
+    "C_D": "N/A", "C_L": "N/A", "Reference Area": "N/A", 
+    "Iterations / Time": "N/A", "Solver Version": "N/A", 
+    "Run Date": "N/A", "Cell Count": "N/A"
+}
+
+all_generated_images = []
+
+# ================================================================
+# 1.B HELPER FUNCTIONS (Info-Box & PVD Management)
+# ================================================================
+def flatten_pvd(pvd_path):
+    """
+    Moves data files out of ParaView's auto-generated subdirectory 
+    and updates the .pvd XML to point to the current directory.
+    """
+    if not os.path.exists(pvd_path): return
+    try:
+        tree = ET.parse(pvd_path)
+        root = tree.getroot()
+        base_dir = os.path.dirname(pvd_path)
+        
+        # ParaView creates a folder named exactly after the PVD file (minus extension)
+        data_dir_name = os.path.splitext(os.path.basename(pvd_path))[0]
+        data_dir_path = os.path.join(base_dir, data_dir_name)
+        
+        if not os.path.exists(data_dir_path): return
+        
+        # 1. Move everything up to the parent directory
+        for item in os.listdir(data_dir_path):
+            src_path = os.path.join(data_dir_path, item)
+            dst_path = os.path.join(base_dir, item)
+            if not os.path.exists(dst_path):
+                shutil.move(src_path, dst_path)
+        
+        # 2. Update the PVD XML to strip out the subdirectory prefix
+        modified = False
+        for dataset in root.iter('DataSet'):
+            file_rel_path = dataset.get('file')
+            if file_rel_path:
+                file_name = os.path.basename(file_rel_path.replace('\\', '/'))
+                dataset.set('file', file_name)
+                modified = True
+                
+        if modified:
+            tree.write(pvd_path, encoding='utf-8', xml_declaration=True)
+            
+        # 3. Remove the now-empty subdirectory
+        if not os.listdir(data_dir_path):
+            os.rmdir(data_dir_path)
+            
+    except Exception as e:
+        print(f"[WARNING] Could not flatten PVD structure for {os.path.basename(pvd_path)}: {e}")
+
+def add_iso_info_overlay(img_path, iso_settings):
+    """Opens a saved image, draws an info box, and resaves it."""
+    try:
+        img = Image.open(img_path)
+        draw = ImageDraw.Draw(img)
+        width, height = img.size
+
+        try:
+            font = ImageFont.truetype("arial.ttf", 35) 
+        except:
+            print("[WARNING] Could not find 'arial.ttf', falling back to default (will be tiny).")
+            font = ImageFont.load_default()
+
+        geom_text = f"Iso-Geometry : {iso_settings['var']} = {iso_settings['val']}"
+        color_text = f"Coloring By  : {iso_settings['color'] if iso_settings['color'] else 'Solid Color'}"
+        
+        try:
+            w_geom = font.getbbox(geom_text)[2] - font.getbbox(geom_text)[0]
+            w_color = font.getbbox(color_text)[2] - font.getbbox(color_text)[0]
+            max_w = max(w_geom, w_color)
+            line_height = font.getbbox("Ay")[3] - font.getbbox("Ay")[1] + 10 
+        except AttributeError:
+            w_geom, h_geom = font.getsize(geom_text)
+            w_color, h_color = font.getsize(color_text)
+            max_w = max(w_geom, w_color)
+            line_height = max(h_geom, h_color) + 10
+
+        box_padding = 20
+        box_w = max_w + (2 * box_padding)
+        box_h = (line_height * 2) + (2 * box_padding) - 10 
+
+        pos_x, pos_y = 50, 50 
+
+        overlay = Image.new('RGBA', img.size, (255, 255, 255, 0))
+        overlay_draw = ImageDraw.Draw(overlay)
+        
+        box_rect = [pos_x, pos_y, pos_x + box_w, pos_y + box_h]
+        overlay_draw.rectangle(box_rect, fill=(255, 255, 255, 200))
+        overlay_draw.rectangle(box_rect, outline=(0, 0, 0, 255), width=3)
+
+        overlay_draw.text((pos_x + box_padding, pos_y + box_padding), geom_text, fill=(0, 0, 0, 255), font=font)
+        overlay_draw.text((pos_x + box_padding, pos_y + box_padding + line_height), color_text, fill=(0, 0, 0, 255), font=font)
+
+        img.paste(overlay, (0,0), overlay)
+        img.convert('RGB').save(img_path)
+        
+    except Exception as e:
+        print(f"[WARNING] Failed to add overlay to image {os.path.basename(img_path)}: {e}")
+
+def snap_view(file_suffix, camera_pos, view_up, prefix_name):
+    ResetCamera()
+    c = renderView.CameraFocalPoint
+    renderView.CameraPosition = [c[0]+camera_pos[0]*100, c[1]+camera_pos[1]*100, c[2]+camera_pos[2]*100]
+    renderView.CameraFocalPoint = c
+    renderView.CameraViewUp = view_up
+    ResetCamera()
+    Render()
+    f_path = os.path.join(run_dir, f"Run_{next_run_num}_{prefix_name.replace('/', '_')}_{file_suffix}.png")
+    SaveScreenshot(f_path, renderView)
+    all_generated_images.append(f_path) 
+
+# ================================================================
+# 2. METADATA EXTRACTION & NATIVE GRAPH GENERATION
+# ================================================================
+if file_extension in ['.foam', '.openfoam', '.simplefoam']:
+    log_files = [f for f in os.listdir(case_dir) if f.startswith('log.') and 'checkMesh' not in f]
+    if log_files and os.path.exists(os.path.join(case_dir, log_files[0])):
+        with open(os.path.join(case_dir, log_files[0]), 'r') as f:
+            lines = f.readlines()
+            for line in lines[:50]:
+                if line.startswith('Build'): cfd_data["Solver Version"] = line.split(':', 1)[1].strip()
+                elif line.startswith('Date'): cfd_data["Run Date"] = line.split(':', 1)[1].strip()
+
+    system_dir = os.path.join(case_dir, "system")
+    controlDict_path = os.path.join(system_dir, "controlDict")
+    if os.path.exists(controlDict_path):
+        with open(controlDict_path, 'r') as f:
+            for line in f:
+                if 'endTime' in line and not line.strip().startswith('//'):
+                    match = re.search(r'endTime\s+([0-9\.eE\+\-]+);', line)
+                    if match:
+                        cfd_data["Iterations / Time"] = match.group(1)
+                        break
+
+    for dict_file in ["forceCoeffs", "controlDict"]:
+        dict_path = os.path.join(system_dir, dict_file)
+        if os.path.exists(dict_path) and cfd_data["Reference Area"] == "N/A":
+            with open(dict_path, 'r') as f:
+                for line in f:
+                    if 'Aref' in line and not line.strip().startswith('//'):
+                        match = re.search(r'Aref\s+([0-9\.eE\+\-]+);', line)
+                        if match:
+                            cfd_data["Reference Area"] = match.group(1)
+                            break
+
+    post_dir = os.path.join(case_dir, "postProcessing")
+    if os.path.exists(post_dir):
+        for root, dirs, files in os.walk(post_dir):
+            for file in files:
+                if file.endswith('.dat') and 'forceCoeffs' in root:
+                    try:
+                        with open(os.path.join(root, file), 'r') as f:
+                            lines = f.readlines()
+                            headers = next((l for l in lines if 'Cd' in l and 'Cl' in l and l.startswith('#')), None)
+                            if headers:
+                                h_list = headers.replace('#', '').split()
+                                cd_idx = h_list.index('Cd') if 'Cd' in h_list else 1
+                                cl_idx = h_list.index('Cl') if 'Cl' in h_list else 3
+                                
+                                data_lines = [l for l in lines if not l.startswith('#') and l.strip()]
+                                if data_lines:
+                                    final_vals = data_lines[-1].split()
+                                    if len(final_vals) > max(cd_idx, cl_idx): 
+                                        cfd_data["C_D"] = final_vals[cd_idx]
+                                        cfd_data["C_L"] = final_vals[cl_idx]
+                                        
+                                print("\n--- GENERATING FORCE COEFFICIENTS GRAPH ---")
+                                try:
+                                    import matplotlib.pyplot as plt
+                                    times, cds, cls = [], [], []
+                                    for l in data_lines:
+                                        parts = l.split()
+                                        if len(parts) > max(cd_idx, cl_idx):
+                                            try:
+                                                times.append(float(parts[0]))
+                                                cds.append(float(parts[cd_idx]))
+                                                cls.append(float(parts[cl_idx]))
+                                            except: pass
+                                            
+                                    if times:
+                                        plt.figure(figsize=(10, 6))
+                                        plt.plot(times, cds, label='Cd (Drag)', color='#d62728', linewidth=2)
+                                        plt.plot(times, cls, label='Cl (Lift)', color='#1f77b4', linewidth=2)
+                                        plt.title('Force Coefficients Development', fontsize=16, fontweight='bold')
+                                        plt.xlabel('Iterations / Time', fontsize=12)
+                                        plt.ylabel('Coefficient Value', fontsize=12)
+                                        plt.grid(True, linestyle='--', alpha=0.7)
+                                        plt.legend(fontsize=12)
+                                        plt.tight_layout()
+                                        
+                                        graph_path = os.path.join(run_dir, f"Run_{next_run_num}_ForceCoeffs.png")
+                                        plt.savefig(graph_path, dpi=200, facecolor='white')
+                                        plt.close()
+                                        
+                                        all_generated_images.insert(0, graph_path)
+                                        print(f"[SUCCESS] High-res graph generated: {os.path.basename(graph_path)}")
+                                except ImportError:
+                                    print("[ERROR] matplotlib not found in ParaView. Cannot draw graph.")
+                                except Exception as e:
+                                    print(f"[ERROR] Failed to draw graph: {e}")
+                                print("-------------------------------------------\n")
+
+                    except Exception as e: 
+                        print(f"[WARNING] Could not parse .dat file: {e}")
+
+# ================================================================
+# 3. MESH LOADING & REGION SELECTION
+# ================================================================
+selected_regions = []
+reader = None
+
+if file_extension in ['.encas', '.case']:
+    reader = OpenDataFile(input_file)
+    reader.UpdatePipelineInformation()
+    selected_regions = ['EnSight_Mesh'] 
+
+elif file_extension in ['.foam', '.openfoam', '.simplefoam']:
+    reader = OpenFOAMReader(FileName=input_file)
+    reader.UpdatePipelineInformation() 
+    available_regions = list(reader.MeshRegions.Available)
+    
+    for i, reg in enumerate(available_regions): print(f"  {i}: {reg}")
+    val = input("\nEnter region NUMBERS to analyze (e.g., 0, 3) > ").strip()
+    if val:
+        for v in val.split(','):
+            try: selected_regions.append(available_regions[int(v.strip())])
+            except: pass
+    reader.MeshRegions = selected_regions if selected_regions else ['internalMesh']
+
+else:
+    print(f"\n[ERROR] Unrecognized file extension: '{file_extension}'")
+    sys.exit(1)
+
+run_settings["Regions"] = selected_regions
+
+# ================================================================
+# 4. VARIABLE & ISO-SURFACE SELECTION 
+# ================================================================
+avail_points = list(reader.PointArrays.Available) if hasattr(reader, 'PointArrays') else []
+avail_cells = list(reader.CellArrays.Available) if hasattr(reader, 'CellArrays') else []
+available_vars = list(set(avail_points + avail_cells))
+
+if available_vars:
+    print("\nAvailable variables:")
+    for var in sorted(available_vars): print(f"  - {var}")
+    raw_vars = [v.strip() for v in input("\nEnter variables to plot (comma-separated) > ").split(',')]
+    variables_to_plot = [v for v in raw_vars if v in available_vars]
+else:
+    variables_to_plot = []
+
+# --- ISO-SURFACE PROMPT ---
+iso_settings = None
+want_iso = input("\nCreate an Iso-Surface? (y/n) > ").strip().lower()
+if want_iso == 'y':
+    iso_var = input("Enter variable to contour by (e.g., p, U, Q) > ").strip()
+    if iso_var in available_vars:
+        try:
+            iso_val = float(input(f"Enter Iso-value for '{iso_var}' (e.g., 0.0) > ").strip())
+            iso_color = input("Variable to color it by? (Press Enter for solid gray) > ").strip()
+            if iso_color not in available_vars: iso_color = None
+            
+            iso_settings = {'var': iso_var, 'val': iso_val, 'color': iso_color}
+            run_settings["Iso_Surface"] = f"{iso_var} = {iso_val}" + (f" (Colored by {iso_color})" if iso_color else " (Solid Color)")
+            
+            if iso_var not in variables_to_plot: variables_to_plot.append(iso_var)
+            if iso_color and iso_color not in variables_to_plot: variables_to_plot.append(iso_color)
+        except ValueError:
+            print("[ERROR] Invalid number entered. Skipping Iso-Surface.")
+    else:
+        print(f"[ERROR] Variable '{iso_var}' not found. Skipping Iso-Surface.")
+
+if hasattr(reader, 'PointArrays') and avail_points: reader.PointArrays = [v for v in variables_to_plot if v in avail_points]
+if hasattr(reader, 'CellArrays') and avail_cells: reader.CellArrays = [v for v in variables_to_plot if v in avail_cells]
+run_settings["Variables"] = variables_to_plot
+
+reader.UpdatePipeline()
+temp_merged = MergeBlocks(Input=reader)
+temp_merged.UpdatePipeline()
 
 try:
-    # OpenDataFile automatically handles .stl, .vtu, .foam, etc.
-    source = OpenDataFile(input_file)
-    if not source:
-        raise RuntimeError("Load failed.")
-    source.UpdatePipeline()
-    print("STATUS: File loaded successfully.")
-except Exception as e:
-    print(f"[ERROR] Could not open file. Details: {e}")
-    sys.exit(1)
+    num_cells = temp_merged.GetDataInformation().GetNumberOfCells()
+    if num_cells > 0: cfd_data["Cell Count"] = f"{num_cells:,}"
+except: pass
+
+merged_ensight = temp_merged if file_extension in ['.encas', '.case'] else None
 
 # ================================================================
-# 3. VARIABLES TO PLOT 
+# 5. RENDERING & SCREENSHOT GENERATION
 # ================================================================
-# EDIT THIS LIST: Add or remove the exact variable names from your simulation
-variables_to_plot = ["pressure", "rel_velocity_magnitude", "pressure_coefficient"]
-
-# ================================================================
-# 4. VISUALIZATION SETUP
-# ================================================================
-print("\n4. Setting up the 3D Scene...")
-
-renderView = GetActiveView()
-if not renderView:
-    renderView = CreateView('RenderView')
-
-HideAll(renderView)
-display = Show(source, renderView)
-display.Representation = 'Surface'
-
+renderView = GetActiveView() or CreateView('RenderView')
 renderView.ViewSize = [1920, 1080]
 renderView.Background = [1, 1, 1] 
 
-# ================================================================
-# 5. SCREENSHOT LOGIC
-# ================================================================
-def snap_view(file_suffix, camera_pos, view_up):
-    print(f"   - Capturing {file_suffix}...")
+for region_name in selected_regions:
+    print(f"\nPROCESSING: {region_name}")
     
-    ResetCamera()
-    center = renderView.CameraFocalPoint
-    dist = 100 
-    
-    new_pos = [
-        center[0] + camera_pos[0] * dist,
-        center[1] + camera_pos[1] * dist,
-        center[2] + camera_pos[2] * dist
-    ]
-    
-    renderView.CameraPosition = new_pos
-    renderView.CameraFocalPoint = center
-    renderView.CameraViewUp = view_up
-    
-    ResetCamera()
-    Render()
-    
-    filename = f"{base_name}_{file_suffix}.png"
-    full_path = os.path.join(results_dir, filename)
-    SaveScreenshot(full_path, renderView)
+    if file_extension in ['.foam', '.openfoam', '.simplefoam']:
+        reader.MeshRegions = [region_name]
+        reader.UpdatePipeline()
+        region_data = MergeBlocks(Input=reader)
+        region_data.UpdatePipeline()
+        is_boundary = 'patch' in region_name.lower()
+    else:
+        region_data, is_boundary = merged_ensight, False
 
-# ================================================================
-# 6. LOOP THROUGH VARIABLES & TAKE PHOTOS
-# ================================================================
-print("\n5. Generating colored screenshots...")
-
-# First, take the solid gray baseline photos just in case
-print("\n--- Processing Baseline (Solid Gray) ---")
-ColorBy(display, None)
-display.DiffuseColor = [0.8, 0.8, 0.8]
-display.SetScalarBarVisibility(renderView, False)
-
-snap_view("Gray_front",     [0, 0, 1],   [0, 1, 0])
-snap_view("Gray_side",      [1, 0, 0],   [0, 1, 0])
-snap_view("Gray_front_iso", [1, 1, 1],   [0, 1, 0])
-
-# Now loop through the CFD variables
-for var in variables_to_plot:
-    print(f"\n--- Processing Variable: {var} ---")
+    data_to_render = region_data
+    slice_axis = ""
     
-    try:
-        # 1. Color by the variable. 
-        # ('POINTS', var) is standard for most CFD nodes. 
-        # If your data is element-based, change 'POINTS' to 'CELLS'
-        ColorBy(display, ('POINTS', var))
+    if is_boundary:
+        run_settings["Region_Slices"][region_name] = "None (3D Surface)"
+    else:
+        bounds = region_data.GetDataInformation().GetBounds()
+        cx, cy, cz = (bounds[0]+bounds[1])/2.0, (bounds[2]+bounds[3])/2.0, (bounds[4]+bounds[5])/2.0
+        slice_axis = input(f"Take 2D slice of '{region_name}'? (x/y/z or Enter for 3D) > ").strip().lower()
+
+        if slice_axis in ['x', 'y', 'z']:
+            slice_filter = Slice(Input=region_data)
+            slice_filter.SliceType = 'Plane'
+            slice_filter.SliceType.Origin = [cx, cy, cz]
+            slice_filter.SliceType.Normal = [1.0 if slice_axis=='x' else 0.0, 1.0 if slice_axis=='y' else 0.0, 1.0 if slice_axis=='z' else 0.0]
+            slice_filter.UpdatePipeline()
+            data_to_render = slice_filter 
+            run_settings["Region_Slices"][region_name] = f"{slice_axis.upper()}-Normal Slice"
+        else:
+            run_settings["Region_Slices"][region_name] = "None (Full 3D Volume)"
+
+    if is_boundary or slice_axis not in ['x', 'y', 'z']:
+        views_to_take = [("front", [1,0,0], [0,0,1]), ("side", [0,1,0], [0,0,1]), ("top", [0,0,1], [1,0,0]), ("front_iso", [1,1,1], [0,0,1]), ("rear_iso", [-1,1,1], [0,0,1])]
+    else:
+        views_to_take = [(f"{slice_axis.upper()}_Normal", [1 if slice_axis=='x' else 0, 1 if slice_axis=='y' else 0, 1 if slice_axis=='z' else 0], [0,0,1] if slice_axis in ['x','y'] else [1,0,0])]
+
+    HideAll(renderView)
+    display = Show(data_to_render, renderView)
+    display.Representation = 'Surface'
+
+    display.ColorArrayName = ['POINTS', '']
+    ColorBy(display, None)
+    display.DiffuseColor = [0.8, 0.8, 0.8]
+    display.SetScalarBarVisibility(renderView, False)
+    
+    for v_name, c_pos, c_up in views_to_take:
+        if is_boundary and v_name in ["top", "rear_iso"]: continue 
+        snap_view(f"Gray_{v_name}", c_pos, c_up, region_name)
+
+    region_point_vars, region_cell_vars = list(data_to_render.PointData.keys()), list(data_to_render.CellData.keys())
+    for var in variables_to_plot:
+        if var not in raw_vars: continue 
         
-        # 2. Rescale the color map to fit the actual min/max of this variable
+        if var in region_point_vars: ColorBy(display, ('POINTS', var))
+        elif var in region_cell_vars: ColorBy(display, ('CELLS', var))
+        else: continue
+        
         display.RescaleTransferFunctionToDataRange(True, False)
-        
-        # 3. Turn on the Color Legend (Scalar Bar)
         display.SetScalarBarVisibility(renderView, True)
-        
-        # 4. Take the pictures
-        snap_view(f"{var}_front",     [0, 0, 1],   [0, 1, 0])
-        snap_view(f"{var}_side",      [1, 0, 0],   [0, 1, 0])
-        snap_view(f"{var}_top",       [0, 1, 0],   [0, 0, -1])
-        snap_view(f"{var}_front_iso", [1, 1, 1],   [0, 1, 0])
-        snap_view(f"{var}_rear_iso",  [-1, 1, -1], [0, 1, 0])
-        
-        # 5. Hide the legend before moving to the next variable
+        for v_name, c_pos, c_up in views_to_take: snap_view(f"{var}_{v_name}", c_pos, c_up, region_name)
         display.SetScalarBarVisibility(renderView, False)
-        
-    except Exception as e:
-        print(f"   [WARNING] Could not process '{var}'. Is it spelled correctly in the EnSight file? Skipping...")
-        print(f"   Details: {e}")
 
-print("="*60)
-print("SUCCESS! All conversions and variable images are done.")
-print("="*60)
+    # Export Data & Flatten Directory
+    pvd_export_path = os.path.join(run_dir, f"Run_{next_run_num}_{region_name.replace('/', '_')}_summary.pvd")
+    SaveData(pvd_export_path, proxy=data_to_render)
+    flatten_pvd(pvd_export_path)
+
+# --- ISO-SURFACE RENDERING & OVERLAY ---
+if iso_settings:
+    print(f"\nPROCESSING: Iso-Surface ({iso_settings['var']} = {iso_settings['val']})")
+    
+    if file_extension in ['.foam', '.openfoam', '.simplefoam']:
+        current_regions = list(reader.MeshRegions)
+        if 'internalMesh' not in current_regions:
+            reader.MeshRegions = current_regions + ['internalMesh']
+            reader.UpdatePipeline()
+        iso_base = MergeBlocks(Input=reader)
+        iso_base.UpdatePipeline()
+    else:
+        iso_base = merged_ensight
+
+    base_cell_vars = list(iso_base.CellData.keys())
+    if iso_settings['var'] in base_cell_vars or (iso_settings['color'] and iso_settings['color'] in base_cell_vars):
+        iso_base = CellDatatoPointData(Input=iso_base)
+
+    iso_filter = Contour(Input=iso_base)
+    iso_filter.ContourBy = ['POINTS', iso_settings['var']]
+    iso_filter.Isosurfaces = [iso_settings['val']]
+    iso_filter.ComputeNormals = 1
+    iso_filter.UpdatePipeline()
+
+    HideAll(renderView)
+    
+    outline = Outline(Input=iso_base)
+    out_disp = Show(outline, renderView)
+    out_disp.AmbientColor = [0, 0, 0]
+    out_disp.DiffuseColor = [0, 0, 0]
+    out_disp.LineWidth = 2.0
+
+    iso_display = Show(iso_filter, renderView)
+    iso_display.Representation = 'Surface'
+    
+    if iso_settings['color']:
+        ColorBy(iso_display, ('POINTS', iso_settings['color']))
+        iso_display.RescaleTransferFunctionToDataRange(True, False)
+        iso_display.SetScalarBarVisibility(renderView, True)
+    else:
+        ColorBy(iso_display, None)
+        iso_display.DiffuseColor = [0.8, 0.4, 0.4] 
+
+    views_to_take = [("front", [1,0,0], [0,0,1]), ("side", [0,1,0], [0,0,1]), ("top", [0,0,1], [1,0,0]), ("front_iso", [1,1,1], [0,0,1]), ("rear_iso", [-1,1,1], [0,0,1])]
+    
+    color_suffix = iso_settings['color'] if iso_settings['color'] else "SolidColor"
+    for v_name, c_pos, c_up in views_to_take:
+        snap_view(f"{iso_settings['val']}_ColoredBy_{color_suffix}_{v_name}", c_pos, c_up, f"IsoSurface_{iso_settings['var']}")
+        add_iso_info_overlay(all_generated_images[-1], iso_settings)
+        
+    iso_display.SetScalarBarVisibility(renderView, False)
+    
+    # Export Iso Data & Flatten Directory
+    iso_pvd_path = os.path.join(run_dir, f"Run_{next_run_num}_IsoSurface_{iso_settings['var']}.pvd")
+    SaveData(iso_pvd_path, proxy=iso_filter)
+    flatten_pvd(iso_pvd_path)
+
+# ================================================================
+# 6. EXPORT PDF, SETTINGS & CLEANUP
+# ================================================================
+settings_path = os.path.join(run_dir, f"Run_{next_run_num}_settings.txt")
+with open(settings_path, 'w') as f:
+    f.write(f"========================================\n")
+    f.write(f"  CFD VISUALIZER LOG - RUN {next_run_num}\n")
+    f.write(f"========================================\n\n")
+    f.write(f"--- RUN SETTINGS ---\n")
+    f.write(f"Input File  : {run_settings['Input File']}\n")
+    f.write(f"Regions     : {', '.join(run_settings['Regions']) if run_settings['Regions'] else 'None'}\n")
+    f.write(f"Variables   : {', '.join(run_settings['Variables']) if run_settings['Variables'] else 'None'}\n")
+    f.write(f"Iso-Surface : {run_settings['Iso_Surface']}\n")
+    for reg, slc in run_settings['Region_Slices'].items():
+        f.write(f"Slice ({reg}): {slc}\n")
+    f.write(f"\n--- SIMULATION DATA ---\n")
+    for key, value in cfd_data.items():
+        f.write(f"{key:<18}: {value}\n")
+
+try:
+    table_path = os.path.join(run_dir, f"Run_{next_run_num}_DataTable.png")
+    img = Image.new('RGB', (1920, 1080), color=(255, 255, 255))
+    d = ImageDraw.Draw(img)
+    
+    try: font_title, font_text = ImageFont.truetype("arial.ttf", 60), ImageFont.truetype("arial.ttf", 45)
+    except: font_title, font_text = ImageFont.load_default(), ImageFont.load_default()
+    
+    d.text((150, 150), f"CFD Run Summary (Run {next_run_num})", fill=(0,0,0), font=font_title)
+    for i, (k, v) in enumerate(cfd_data.items()):
+        d.text((150, 300 + i*80), f"{k}:", fill=(100,100,100), font=font_text)
+        d.text((650, 300 + i*80), f"{v}", fill=(0,0,0), font=font_text)
+    img.save(table_path)
+    
+    pdf_path = os.path.join(run_dir, f"Run_{next_run_num}.pdf")
+    compiled = [Image.open(table_path).convert('RGB')]
+    
+    for p in all_generated_images:
+        if os.path.exists(p):
+            try:
+                curr_img = Image.open(p)
+                if curr_img.mode in ('RGBA', 'LA') or (curr_img.mode == 'P' and 'transparency' in curr_img.info):
+                    alpha = curr_img.convert('RGBA').split()[-1]
+                    bg = Image.new("RGB", curr_img.size, (255, 255, 255))
+                    bg.paste(curr_img, mask=alpha)
+                    compiled.append(bg)
+                else:
+                    compiled.append(curr_img.convert('RGB'))
+            except Exception as e: pass
+        
+    compiled[0].save(pdf_path, save_all=True, append_images=compiled[1:])
+    print(f"\n[SUCCESS] Generated complete PDF Report: {pdf_path}")
+    
+    # --- AUTO CLEANUP ---
+    print(f"[INFO] Cleaning up raw image files...")
+    if os.path.exists(table_path): os.remove(table_path)
+    for p in all_generated_images:
+        if os.path.exists(p):
+            try: os.remove(p)
+            except: pass
+            
+    print(f"\n--- DONE ---")
+    print(f"Summary Folder '{os.path.basename(run_dir)}' now safely contains your PDF, Settings TXT, and PVD data!")
+    
+except Exception as e:
+    print(f"\n[WARNING] PDF creation failed: {e}. Raw images were kept.")
