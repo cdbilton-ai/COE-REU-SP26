@@ -1,0 +1,29 @@
+{
+    "input_file": "C:/Users/cashb/Documents/COE_REU/motorBike/motorBike/log.simpleFoam",
+    "zoom_factor": 1,
+    "regions": ["internalMesh"],
+    "variables": ["p", "U"],
+"slices": {
+        "internalMesh": {
+            "axis": "y",
+            "min": -2.0,
+            "max": 5.0,
+            "count": 8
+        }
+    },
+    "iso_surfaces": [
+        {
+            "create": true,
+            "variable": "p",
+            "value": 0.0,
+            "color_by": "U"
+        },
+        {
+            "create": true,
+            "variable": "k",
+            "value": 1.0,
+            "color_by": "U"
+        }
+    ],
+    "resolution": [3840, 2160]
+}
