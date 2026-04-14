@@ -122,7 +122,7 @@ Or use the batch file:
 ```bash
 run_visualizer.bat
 ```
-``JSON Configuration Parameters
+```JSON Configuration Parameters
 
 
 input_file    string	Path to CFD data file	/path/to/case.foam
