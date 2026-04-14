@@ -1,5 +1,3 @@
-
-Markdown
 # Multi-Format CFD Visualizer
 
 An automated, modular Python toolkit for generating standardized CFD visualization reports from **OpenFOAM** and **ANSYS EnSight** datasets. This project includes a primary visualizer script, batch processing utilities, file format converters, and geometry parameter extraction tools.
@@ -36,12 +34,12 @@ Download from [paraview.org](https://www.paraview.org/download/) and install nor
 "C:\Program Files\ParaView 5.x.x\bin\pvpython.exe" -m pip install Pillow
 Mac/Linux:
 
-bash
+```bash
 /Applications/ParaView-5.x.x.app/Contents/bin/pvpython -m pip install Pillow
 (Replace 5.x.x with your ParaView version)
 
 Step 3: Clone or Download This Repository
-bash
+```bash
 git clone https://github.com/cdbilton-ai/COE-REU-SP26.git
 cd COE-REU-SP26
 Step 4: Run Using Batch File (Easiest)
@@ -50,7 +48,7 @@ Linux/Mac: Run ./run_visualizer.sh
 
 Or manually:
 
-bash
+```bash
 pvpython cfd_visualizer.py setup.json
 📋 Prerequisites & Installation
 System Requirements
@@ -64,11 +62,11 @@ paraview.simple	3D visualization & rendering	Included with ParaView
 Pillow (PIL)	PDF creation & image processing	See Step 2 above
 matplotlib	Force coefficient graphing (optional)	pvpython -m pip install matplotlib
 Verify Installation
-bash
+```bash
 pvpython -c "from paraview.simple import *; from PIL import Image; print('✓ All libraries installed')"
 💻 Usage Guide
 Method 1: Interactive Mode (No Config File)
-bash
+```bash
 pvpython cfd_visualizer.py
 The script will prompt you for:
 
@@ -110,11 +108,11 @@ JSON
 }
 Run with config:
 
-bash
+```bash
 pvpython cfd_visualizer.py setup.json
 Or use the batch file:
 
-bash
+```bash
 run_visualizer.bat
 JSON Configuration Parameters
 Parameter	Type	Description	Example
@@ -280,11 +278,11 @@ OpenFOAM metadata missing	Ensure log.*, system/controlDict, and postProcessing/ 
 Memory issues	Reduce screenshot resolution or process smaller regions separately
 📝 Examples
 Example 1: Quick Visualization (Interactive)
-bash
+```bash
 pvpython cfd_visualizer.py
 # Follow prompts to select file, regions, and variables
 Example 2: MotorBike Case (with Config)
-bash
+```bash
 pvpython cfd_visualizer.py setup.json
 Example 3: ANSYS Case with Custom Zoom
 JSON
