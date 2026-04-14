@@ -122,7 +122,7 @@ Or use the batch file:
 ```bash
 run_visualizer.bat
 ```
-JSON Configuration Parameters
+``JSON Configuration Parameters
 
 
 input_file    string	Path to CFD data file	/path/to/case.foam
@@ -138,7 +138,7 @@ zoom_center    [x, y, z]	Custom zoom focal point	[0.0, 0.0, 0.0]
 regions    [string]	Mesh regions to analyze	["internalMesh"]
 
 variables	[string]	Variables to visualize	["p", "U", "k"]
-
+```
 Slicing Configuration:
 
 ```JSON
