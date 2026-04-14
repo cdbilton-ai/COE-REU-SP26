@@ -33,10 +33,12 @@ Download from [paraview.org](https://www.paraview.org/download/) and install nor
 ```bash
 "C:\Program Files\ParaView 5.x.x\bin\pvpython.exe" -m pip install Pillow
 Mac/Linux:
+```
 
 ```bash
 /Applications/ParaView-5.x.x.app/Contents/bin/pvpython -m pip install Pillow
 (Replace 5.x.x with your ParaView version)
+```
 
 Step 3: Clone or Download This Repository
 ```bash
@@ -45,11 +47,12 @@ cd COE-REU-SP26
 Step 4: Run Using Batch File (Easiest)
 Windows: Double-click run_visualizer.bat
 Linux/Mac: Run ./run_visualizer.sh
-
+```
 Or manually:
 
 ```bash
 pvpython cfd_visualizer.py setup.json
+```
 📋 Prerequisites & Installation
 System Requirements
 ParaView 5.8+ (with bundled Python 3.6+)
@@ -64,10 +67,12 @@ matplotlib	Force coefficient graphing (optional)	pvpython -m pip install matplot
 Verify Installation
 ```bash
 pvpython -c "from paraview.simple import *; from PIL import Image; print('✓ All libraries installed')"
+```
 💻 Usage Guide
 Method 1: Interactive Mode (No Config File)
 ```bash
 pvpython cfd_visualizer.py
+```
 The script will prompt you for:
 
 CFD file path - Drag and drop your .foam, .simpleFoam, or .encas file
@@ -76,7 +81,7 @@ Variables - Select which fields to visualize (e.g., p, U, k)
 Slicing - Choose slice axis (x, y, z) or render 3D
 Method 2: Automated Mode with JSON Config (Recommended)
 Create or modify a JSON configuration file:
-
+```JSON
 JSON
 {
     "input_file": "/path/to/case/motor_bike.foam",
@@ -106,14 +111,17 @@ JSON
         }
     ]
 }
+```
 Run with config:
 
 ```bash
 pvpython cfd_visualizer.py setup.json
+```
 Or use the batch file:
 
 ```bash
 run_visualizer.bat
+```
 JSON Configuration Parameters
 Parameter	Type	Description	Example
 input_file	string	Path to CFD data file	/path/to/case.foam
@@ -127,7 +135,7 @@ slices	object	2D slicing config per region	See below
 iso_surfaces	[object]	Iso-surface configurations	See below
 Slicing Configuration:
 
-JSON
+```JSON
 "slices": {
     "internalMesh": {
         "axis": "y",           // x, y, or z
@@ -136,9 +144,10 @@ JSON
         "count": 8             // Number of slices
     }
 }
+```
 Iso-Surface Configuration:
 
-JSON
+```JSON
 "iso_surfaces": [
     {
         "create": true,
@@ -147,6 +156,7 @@ JSON
         "color_by": "U"        // Optional coloring variable
     }
 ]
+```
 📂 Expected File Structure
 OpenFOAM Case Folder
 For metadata extraction (Force Coefficients, Cell Count, Solver Info), organize as:
@@ -194,7 +204,7 @@ Images/
 🎥 Customizing Camera Views
 The script renders 5 standard camera angles by default. To modify or add views, edit the views_to_take list in the rendering sections:
 
-Python
+```Python
 views_to_take = [
     ("front",     [1, 0, 0],   [0, 0, 1]),  # X-axis view, Z up
     ("side",      [0, 1, 0],   [0, 0, 1]),  # Y-axis view, Z up
@@ -202,10 +212,12 @@ views_to_take = [
     ("front_iso", [1, 1, 1],   [0, 0, 1]),  # Isometric
     ("rear_iso",  [-1, 1, 1],  [0, 0, 1])   # Reverse isometric
 ]
+```
 Adding a Custom View:
 
-Python
+```Python
 ("bottom_iso", [-1, -1, -1], [0, 0, 1])  # Bottom isometric view
+```
 The format is: ("view_name", [camera_direction], [up_vector])
 
 📜 Code Architecture
@@ -227,13 +239,14 @@ Geo_Parameters.py - Extract geometric properties from CFD data
 run_visualizer.bat - Windows batch launcher with menu options
 🔧 Advanced Usage
 Multi-Region Analysis
-JSON
+```JSON
 {
     "regions": ["internalMesh", "motorBike_body", "motorBike_wheels"],
     "variables": ["p", "U", "nuT"]
 }
+```
 Multiple Iso-Surfaces
-JSON
+```JSON
 {
     "iso_surfaces": [
         {"create": true, "variable": "p", "value": 0.0, "color_by": "U"},
@@ -241,16 +254,18 @@ JSON
         {"create": true, "variable": "nuT", "value": 0.5, "color_by": null}
     ]
 }
+```
 High-Resolution Output
-JSON
+```JSON
 {
     "resolution": [7680, 4320],        // 8K screenshots
     "pdf_resolution": [1200, 1600]     // Large PDF pages
 }
+```
 Batch Processing Multiple Cases
 Create a Python script:
 
-Python
+```Python
 import json
 import subprocess
 import os
@@ -268,6 +283,7 @@ for case in cases:
         json.dump(config, f)
     
     subprocess.run(["pvpython", "cfd_visualizer.py", f"{case}_config.json"])
+```
 🐛 Troubleshooting
 Issue	Solution
 "Pillow not found" error	Run: pvpython -m pip install Pillow
@@ -280,10 +296,12 @@ Memory issues	Reduce screenshot resolution or process smaller regions separately
 Example 1: Quick Visualization (Interactive)
 ```bash
 pvpython cfd_visualizer.py
+```
 # Follow prompts to select file, regions, and variables
 Example 2: MotorBike Case (with Config)
 ```bash
 pvpython cfd_visualizer.py setup.json
+```
 Example 3: ANSYS Case with Custom Zoom
 JSON
 {
@@ -292,6 +310,7 @@ JSON
     "zoom_center": [5.0, 2.5, 0.0],
     "variables": ["pressure", "velocity"]
 }
+```
 📚 Resources
 ParaView Documentation: https://www.paraview.org/documentation/
 OpenFOAM User Guide: https://cfd.direct/openfoam/user-guide/
