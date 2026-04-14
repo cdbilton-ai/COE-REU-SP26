@@ -124,25 +124,20 @@ run_visualizer.bat
 ```
 JSON Configuration Parameters
 
-Parameter	Type	Description	Example
 
-input_file	string	Path to CFD data file	/path/to/case.foam
+input_file    string	Path to CFD data file	/path/to/case.foam
 
-resolution	[int, int]	Screenshot resolution (width × height)	[3840, 2160]
+resolution    [int, int]    Screenshot resolution (width × height)	[3840, 2160]
 
-pdf_resolution	[int, int]	PDF page size in pixels	[816, 1056] (letter size)
+pdf_resolution    [int, int]	PDF page size in pixels	[816, 1056] (letter size)
 
-zoom_factor	float	Camera zoom (>1 = zoom in)	1.0 (default), 1.5 (zoomed)
+zoom_factor    float	Camera zoom (>1 = zoom in)	1.0 (default), 1.5 (zoomed)
 
-zoom_center	[x, y, z]	Custom zoom focal point	[0.0, 0.0, 0.0]
+zoom_center    [x, y, z]	Custom zoom focal point	[0.0, 0.0, 0.0]
 
-regions	[string]	Mesh regions to analyze	["internalMesh"]
+regions    [string]	Mesh regions to analyze	["internalMesh"]
 
 variables	[string]	Variables to visualize	["p", "U", "k"]
-
-slices	object	2D slicing config per region	See below
-
-iso_surfaces	[object]	Iso-surface configurations	See below
 
 Slicing Configuration:
 
