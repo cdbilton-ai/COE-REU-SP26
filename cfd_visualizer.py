@@ -1,7 +1,7 @@
 """
 Multi-Format CFD Visualizer - BATCH EDITION (v3.0 - PDF Output)
 Supports: OpenFOAM & ANSYS EnSight
-Features: JSON Automation, 4K High-Res, Native Graphs, PDF Report, State Export, Dynamic Camera
+Features: JSON Automation, 4K High-Res, Native Graphs, PDF Report, State Export, Dynamic Camera, Zoom Center
 """
 
 from paraview.simple import *
@@ -29,6 +29,7 @@ initial_path = os.path.abspath(raw_path)
 config = None
 output_resolution = [1920, 1080]
 iso_configs = []
+zoom_center = None  # NEW: zoom center point
 
 if initial_path.lower().endswith('.json'):
     print(f"\n[INFO] Loading configuration from JSON: {initial_path}")
@@ -37,6 +38,7 @@ if initial_path.lower().endswith('.json'):
             config = json.load(f)
         input_file = os.path.abspath(config.get("input_file", ""))
         output_resolution = config.get("resolution", [3840, 2160])
+        zoom_center = config.get("zoom_center", None)  # NEW: read zoom center from JSON
     except Exception as e:
         print(f"[ERROR] Failed to parse JSON config: {e}")
         sys.exit(1)
@@ -163,13 +165,16 @@ def add_iso_info_overlay(img_path, iso_settings):
 renderView = GetActiveView() or CreateView('RenderView')
 renderView.ViewSize = output_resolution
 
-# DYNAMIC CAMERA UPDATE WITH ZOOM
+# DYNAMIC CAMERA UPDATE WITH ZOOM AND ZOOM CENTER
 def snap_view(file_suffix, camera_pos, view_up, prefix_name, focal_point, cam_dist):
-    renderView.CameraFocalPoint = focal_point
+    # Use zoom_center if specified, otherwise use focal_point
+    center_point = zoom_center if zoom_center is not None else focal_point
+    
+    renderView.CameraFocalPoint = center_point
     renderView.CameraPosition = [
-        focal_point[0] + camera_pos[0] * cam_dist, 
-        focal_point[1] + camera_pos[1] * cam_dist, 
-        focal_point[2] + camera_pos[2] * cam_dist
+        center_point[0] + camera_pos[0] * cam_dist, 
+        center_point[1] + camera_pos[1] * cam_dist, 
+        center_point[2] + camera_pos[2] * cam_dist
     ]
     renderView.CameraViewUp = view_up
     ResetCamera() 
@@ -364,10 +369,6 @@ merged_generic = temp_merged if not is_openfoam else None
 # ================================================================
 # 5. HIGH-RES RENDERING & SCREENSHOT GENERATION
 # ================================================================
-# ================================================================
-# 5. HIGH-RES RENDERING & SCREENSHOT GENERATION
-# ================================================================
-# Pure White Background for PDF
 renderView.Background = [.4, .4, .4] 
 renderView.UseColorPaletteForBackground = 0
 try: renderView.AntiAliasing = 'FXAA'
@@ -389,8 +390,6 @@ for region_name in selected_regions:
     cx, cy, cz = (bounds[0]+bounds[1])/2.0, (bounds[2]+bounds[3])/2.0, (bounds[4]+bounds[5])/2.0
     
     domain_diagonal = math.sqrt((bounds[1]-bounds[0])**2 + (bounds[3]-bounds[2])**2 + (bounds[5]-bounds[4])**2)
-    
-    # THE FIX: Increased camera distance to prevent clipping the front-most slice!
     cam_dist = max(domain_diagonal * 2.5, 0.1) 
     
     slice_axis = ""
@@ -406,7 +405,6 @@ for region_name in selected_regions:
                 slice_axis = slice_cfg.get("axis", "").lower()
                 b_min = bounds[0] if slice_axis=='x' else (bounds[2] if slice_axis=='y' else bounds[4])
                 b_max = bounds[1] if slice_axis=='x' else (bounds[3] if slice_axis=='y' else bounds[5])
-                # THE FIX: Apply a strict 2% margin and clamp the MIN/MAX before calculating slices
                 margin = (b_max - b_min) * 0.02 
                 
                 user_min = float(slice_cfg.get("min", b_min + margin))
@@ -457,7 +455,6 @@ for region_name in selected_regions:
                     slc = Slice(Input=slice_input)
                     slc.SliceType = 'Plane'
                     
-                    # We use 'offset' directly since it was safely clamped above!
                     if slice_axis == 'x':
                         slc.SliceType.Normal = [1.0, 0.0, 0.0]
                         slc.SliceType.Origin = [offset, cy, cz]
@@ -498,10 +495,6 @@ for region_name in selected_regions:
     SaveData(pvd_export_path, proxy=region_data)
     flatten_pvd(pvd_export_path)
 
-    # =========================================================
-    # THE FIX: This block ONLY runs if it's a 3D Boundary now!
-    # The duplicate slicing loop has been completely deleted.
-    # =========================================================
     if is_boundary or slice_axis not in ['x', 'y', 'z']:
         HideAll(renderView)
         display = Show(region_data, renderView)
@@ -526,6 +519,7 @@ for region_name in selected_regions:
             display.SetScalarBarVisibility(renderView, False)
     
     if file_extension in ['.foam', '.openfoam', '.simplefoam']: Delete(region_data)
+
 if iso_configs:
     if is_openfoam:
         current_regions = list(reader.MeshRegions)
@@ -606,40 +600,125 @@ try:
     print("\n[INFO] Compiling PDF Report...")
     pdf_path = os.path.join(run_dir, f"Run_{next_run_num}_Report.pdf")
     
-    # Create the Cover Page with pure Pillow
-    cover_img = Image.new('RGB', (output_resolution[0], output_resolution[1]), 'white')
+    # Get PDF resolution from config, or use default standard PDF size
+    if config and "pdf_resolution" in config:
+        pdf_resolution = config["pdf_resolution"]
+    else:
+        pdf_resolution = [816, 1056]
+    
+    PDF_WIDTH, PDF_HEIGHT = pdf_resolution[0], pdf_resolution[1]
+    
+    print(f"[INFO] PDF page size: {PDF_WIDTH}x{PDF_HEIGHT} pixels")
+    
+    # Create the Cover Page with dynamic scaling based on PDF resolution
+    cover_img = Image.new('RGB', (PDF_WIDTH, PDF_HEIGHT), 'white')
     draw = ImageDraw.Draw(cover_img)
     
+    # Calculate all scaling factors based on PDF width (reference: 816px = 8.5")
+    scale_factor = PDF_WIDTH / 816.0
+    
     try:
-        # Scale font sizes dynamically based on resolution
-        title_font = ImageFont.truetype("arial.ttf", int(output_resolution[0] * 0.03))
-        text_font = ImageFont.truetype("arial.ttf", int(output_resolution[0] * 0.015))
+        # Scale font sizes dynamically based on PDF width - SMALLER sizes
+        title_font_size = int(28 * scale_factor)
+        text_font_size = int(12 * scale_factor)
+        table_font_size = int(10 * scale_factor)
+        
+        title_font = ImageFont.truetype("arial.ttf", title_font_size)
+        text_font = ImageFont.truetype("arial.ttf", text_font_size)
+        table_font = ImageFont.truetype("arial.ttf", table_font_size)
     except:
         title_font = ImageFont.load_default()
         text_font = ImageFont.load_default()
-        
-    draw.text((100, 100), f"CFD Visualization Report - Run {next_run_num}", fill="black", font=title_font)
+        table_font = ImageFont.load_default()
     
-    y_offset = int(output_resolution[1] * 0.2)
-    draw.text((100, y_offset), f"Input File: {run_settings['Input File']}", fill="black", font=text_font)
-    y_offset += int(output_resolution[1] * 0.05)
-    draw.text((100, y_offset), f"Regions: {', '.join(run_settings['Regions'])}", fill="black", font=text_font)
-    y_offset += int(output_resolution[1] * 0.05)
-    draw.text((100, y_offset), f"Variables: {', '.join(run_settings['Variables'])}", fill="black", font=text_font)
-    y_offset += int(output_resolution[1] * 0.05)
-    draw.text((100, y_offset), f"Report Date: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", fill="black", font=text_font)
+    # Dynamic margins and spacing based on PDF width (all proportional to scale)
+    left_margin = int(30 * scale_factor)
+    top_margin = int(20 * scale_factor)
+    line_spacing = int(30 * scale_factor)
+    table_padding = int(6 * scale_factor)
+    table_row_height = int(22 * scale_factor)
+    table_header_height = int(28 * scale_factor)
     
-    y_offset += int(output_resolution[1] * 0.1)
-    for key, val in cfd_data.items():
-        draw.text((100, y_offset), f"{key}: {val}", fill="black", font=text_font)
-        y_offset += int(output_resolution[1] * 0.04)
+    # Title
+    draw.text((left_margin, top_margin), f"CFD Visualization Report - Run {next_run_num}", 
+              fill="black", font=title_font)
+    
+    # Summary info section
+    y_offset = top_margin + int(line_spacing * 1.3)
+    info_sections = [
+        f"Input File: {run_settings['Input File']}",
+        f"Regions: {', '.join(run_settings['Regions'])}",
+        f"Variables: {', '.join(run_settings['Variables'])}",
+        f"Report Date: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    ]
+    
+    for info in info_sections:
+        draw.text((left_margin, y_offset), info, fill="black", font=text_font)
+        y_offset += line_spacing
+    
+    # Data table
+    y_offset += int(line_spacing * 0.5)
+    table_y = y_offset
+    table_width = PDF_WIDTH - (2 * left_margin)
+    
+    # Table header background
+    draw.rectangle(
+        [left_margin, table_y, PDF_WIDTH - left_margin, table_y + table_header_height],
+        fill=(200, 200, 200), outline=(0, 0, 0), width=int(1 * scale_factor)
+    )
+    
+    # Table header text - split into Parameter and Value columns
+    col1_x = left_margin + table_padding
+    col2_x = int(left_margin + table_width * 0.4)
+    
+    draw.text((col1_x, table_y + int(table_padding * 1.2)), "Parameter", 
+              fill="black", font=table_font)
+    draw.text((col2_x, table_y + int(table_padding * 1.2)), "Value", 
+              fill="black", font=table_font)
+    
+    table_y += table_header_height
+    
+    # Table data rows with alternating background colors
+    for idx, (key, val) in enumerate(cfd_data.items()):
+        # Alternate row background
+        if idx % 2 == 0:
+            row_fill = (245, 245, 245)
+        else:
+            row_fill = (255, 255, 255)
         
-    # Append all generated screenshots into the PDF array
+        draw.rectangle(
+            [left_margin, table_y, PDF_WIDTH - left_margin, table_y + table_row_height],
+            fill=row_fill, outline=(220, 220, 220), width=int(1 * scale_factor)
+        )
+        
+        # Truncate text if too long
+        key_text = str(key)
+        val_text = str(val)
+        
+        draw.text((col1_x, table_y + int(table_padding * 0.6)), key_text, 
+                  fill="black", font=table_font)
+        draw.text((col2_x, table_y + int(table_padding * 0.6)), val_text, 
+                  fill="black", font=table_font)
+        
+        table_y += table_row_height
+    
+    # Append all generated screenshots into the PDF array with standardized sizing
     pdf_pages = []
     for img_path in all_generated_images:
         if os.path.exists(img_path):
             with Image.open(img_path) as img:
-                pdf_pages.append(img.convert('RGB'))
+                # Resize image to fit PDF page while maintaining aspect ratio
+                img_rgb = img.convert('RGB')
+                img_rgb.thumbnail((PDF_WIDTH, PDF_HEIGHT), Image.Resampling.LANCZOS)
+                
+                # Create a white background page
+                page = Image.new('RGB', (PDF_WIDTH, PDF_HEIGHT), 'white')
+                # Center the resized image on the page
+                x_offset = (PDF_WIDTH - img_rgb.width) // 2
+                y_offset_img = (PDF_HEIGHT - img_rgb.height) // 2
+                page.paste(img_rgb, (x_offset, y_offset_img))
+                
+                pdf_pages.append(page)
                 
     # Bind them all into a single file!
     if pdf_pages:
