@@ -1,20 +1,19 @@
 {
     "input_file": "C:/Users/cashb/OneDrive - Michigan Technological University/COE-REU/Ansys/Test/c1g1_Results.encas",
     "resolution": [3840, 2160],
+    "pdf_resolution": [816, 1056],
     "zoom_factor": 1.2,
-    
+    "zoom_center": [5.0, 2.5, 0.0],
     "variables": [
         "pressure",
         "velocity"
     ],
-    
     "slices": {
         "Imported_Domain": {
             "axis": "z",
             "count": 3
         }
     },
-    
     "iso_surfaces": [
         {
             "create": true,
