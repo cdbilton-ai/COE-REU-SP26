@@ -5,7 +5,7 @@
     "regions": ["internalMesh"],
     "variables": ["p", "U"],
     "resolution": [3840, 2160],
-    "pdf_resolution": [1920, 1080],
+    "pdf_resolution": [1280, 720],
     "slices": {
         "internalMesh": {
             "axis": "y",
