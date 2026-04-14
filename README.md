@@ -303,7 +303,7 @@ Example 2: MotorBike Case (with Config)
 pvpython cfd_visualizer.py setup.json
 ```
 Example 3: ANSYS Case with Custom Zoom
-JSON
+```JSON
 {
     "input_file": "/data/simulation/results.encas",
     "zoom_factor": 1.5,
