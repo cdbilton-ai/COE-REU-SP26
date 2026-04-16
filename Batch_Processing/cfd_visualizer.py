@@ -526,8 +526,8 @@ def process_region(renderView, reader, region_name, config, is_openfoam, variabl
                    run_dir, next_run_num, output_resolution, zoom_factor, zoom_center, all_generated_images,
                    merged_generic=None):
     """
-    Process a single region: perform slicing and 3D rendering as needed.
-    Consolidated function to reduce code duplication.
+    Process a single region: perform slicing in multiple directions and 3D rendering as needed.
+    Unified function supporting both OpenFOAM and ANSYS formats.
     
     Args:
         renderView: ParaView RenderView object
@@ -550,6 +550,7 @@ def process_region(renderView, reader, region_name, config, is_openfoam, variabl
     """
     print(f"\nPROCESSING: {region_name}")
     
+    # Load region data
     if is_openfoam:
         reader.MeshRegions = [region_name]
         reader.UpdatePipeline()
@@ -559,147 +560,223 @@ def process_region(renderView, reader, region_name, config, is_openfoam, variabl
     else:
         region_data, is_boundary = merged_generic, False
     
+    # Get bounds for this region
     bounds = region_data.GetDataInformation().GetBounds()
     cx, cy, cz = ((bounds[0] + bounds[1]) / 2.0, (bounds[2] + bounds[3]) / 2.0, (bounds[4] + bounds[5]) / 2.0)
     
     domain_diagonal = math.sqrt((bounds[1] - bounds[0]) ** 2 + (bounds[3] - bounds[2]) ** 2 + (bounds[5] - bounds[4]) ** 2)
     cam_dist = max(domain_diagonal * 2.5, 0.1)
     
-    # Handle slicing for non-boundary regions
-    if not is_boundary:
-        slice_axis = ""
-        slice_offsets = []
+    print(f"[INFO] Region bounds: X[{bounds[0]:.4f}, {bounds[1]:.4f}], Y[{bounds[2]:.4f}, {bounds[3]:.4f}], Z[{bounds[4]:.4f}, {bounds[5]:.4f}]")
+    print(f"[INFO] Domain diagonal: {domain_diagonal:.4f}, Camera distance: {cam_dist:.4f}")
+    
+    # ================================================================
+    # SLICING SECTION - Supports multiple axes
+    # ================================================================
+    
+    slicing_performed = False
+    
+    if not is_boundary and config and "slices" in config and region_name in config["slices"]:
+        slice_cfg = config["slices"][region_name]
+        slice_axes = []
         
-        if config and "slices" in config and region_name in config["slices"]:
-            slice_cfg = config["slices"][region_name]
-            if isinstance(slice_cfg, dict):
-                slice_axis = slice_cfg.get("axis", "").lower()
-                b_min = bounds[0] if slice_axis == 'x' else (bounds[2] if slice_axis == 'y' else bounds[4])
-                b_max = bounds[1] if slice_axis == 'x' else (bounds[3] if slice_axis == 'y' else bounds[5])
-                margin = (b_max - b_min) * 0.02
-                
-                user_min = float(slice_cfg.get("min", b_min + margin))
-                user_max = float(slice_cfg.get("max", b_max - margin))
-                
-                s_min = max(b_min + margin, min(b_max - margin, user_min))
-                s_max = max(b_min + margin, min(b_max - margin, user_max))
-                s_count = int(slice_cfg.get("count", 1))
-                
-                if s_count > 1:
-                    step = (s_max - s_min) / (s_count - 1)
-                    slice_offsets = [s_min + (i * step) for i in range(s_count)]
-                else:
-                    slice_offsets = [(s_min + s_max) / 2.0]
-        elif not config:
-            slice_axis = input(f"Take 2D slice of '{region_name}'? (x/y/z or Enter for 3D) > ").strip().lower()
-            if slice_axis in ['x', 'y', 'z']:
-                slice_offsets = [cx if slice_axis == 'x' else (cy if slice_axis == 'y' else cz)]
-            else:
-                slice_offsets = [0]
+        # Parse slice configuration - support both old and new formats
+        if "axes" in slice_cfg:
+            # NEW FORMAT: Multiple axes
+            slice_axes = slice_cfg["axes"]
+            print(f"[INFO] Multiple slice axes configured: {len(slice_axes)} axis/axes")
+        elif "axis" in slice_cfg:
+            # OLD FORMAT: Single axis (backward compatible)
+            slice_axes = [slice_cfg]
+            print(f"[INFO] Single slice axis configured: {slice_cfg.get('axis')}")
+        else:
+            print(f"[WARNING] Slice config found but no axis/axes specified")
         
-        # Process slices if requested
-        if slice_axis in ['x', 'y', 'z']:
-            print(f"\n[INFO] Starting Slices for {region_name} along {slice_axis.upper()}-axis")
+        # Process each slice axis
+        for axis_idx, axis_config in enumerate(slice_axes):
+            slice_axis = axis_config.get("axis", "").lower()
             
+            if slice_axis not in ['x', 'y', 'z']:
+                print(f"[WARNING] Invalid slice axis: {slice_axis}. Skipping.")
+                continue
+            
+            # Determine axis bounds based on region geometry
+            if slice_axis == 'x':
+                b_min = bounds[0]
+                b_max = bounds[1]
+            elif slice_axis == 'y':
+                b_min = bounds[2]
+                b_max = bounds[3]
+            else:  # z
+                b_min = bounds[4]
+                b_max = bounds[5]
+            
+            # Apply 2% margin for safety
+            margin = (b_max - b_min) * 0.02
+            
+            # Get user-specified min/max, or use auto-calculated bounds
+            user_min = float(axis_config.get("min", b_min + margin))
+            user_max = float(axis_config.get("max", b_max - margin))
+            
+            # Clamp values to safe range
+            s_min = max(b_min + margin, min(b_max - margin, user_min))
+            s_max = max(b_min + margin, min(b_max - margin, user_max))
+            s_count = int(axis_config.get("count", 1))
+            
+            # Generate slice offsets
+            if s_count > 1:
+                step = (s_max - s_min) / (s_count - 1)
+                slice_offsets = [s_min + (i * step) for i in range(s_count)]
+            else:
+                slice_offsets = [(s_min + s_max) / 2.0]
+            
+            # Log slice information
+            print(f"\n[INFO] === Slice Axis {axis_idx + 1}: {slice_axis.upper()} ===")
+            print(f"[INFO] Geometry bounds: {b_min:.4f} to {b_max:.4f}")
+            print(f"[INFO] Slice range: {s_min:.4f} to {s_max:.4f} ({s_count} slices)")
+            
+            # Prepare data for slicing
             slice_input = region_data
             if not is_openfoam:
                 try:
                     slice_input = CellDataToPointData(Input=region_data)
                     slice_input.ProcessAllArrays = 1
                     slice_input.UpdatePipeline()
+                    print(f"[INFO] Converted cell data to point data")
                 except Exception as e:
-                    pass
+                    print(f"[WARNING] Could not convert cell data to point data: {e}")
             
             Hide(region_data, renderView)
             
+            # Get available variables in slice
             slice_pt_vars = list(slice_input.PointData.keys())
             slice_cell_vars = list(slice_input.CellData.keys())
+            print(f"[INFO] Available variables - Point: {slice_pt_vars}, Cell: {slice_cell_vars}")
             
+            # Slice each variable
             for var in variables_to_plot:
                 if var not in slice_pt_vars and var not in slice_cell_vars:
+                    print(f"[WARNING] Variable '{var}' not found. Skipping.")
                     continue
                 
+                print(f"[INFO] Processing variable: {var}")
+                
+                # Create slice at each offset
                 for i, offset in enumerate(slice_offsets):
-                    slc = Slice(Input=slice_input)
-                    slc.SliceType = 'Plane'
-                    
-                    if slice_axis == 'x':
-                        slc.SliceType.Normal = [1.0, 0.0, 0.0]
-                        slc.SliceType.Origin = [offset, cy, cz]
-                        cam_pos, view_up = [1, 0, 0], [0, 0, 1]
-                    elif slice_axis == 'y':
-                        slc.SliceType.Normal = [0.0, 1.0, 0.0]
-                        slc.SliceType.Origin = [cx, offset, cz]
-                        cam_pos, view_up = [0, 1, 0], [0, 0, 1]
-                    else:  # z
-                        slc.SliceType.Normal = [0.0, 0.0, 1.0]
-                        slc.SliceType.Origin = [cx, cy, offset]
-                        cam_pos, view_up = [0, 0, 1], [0, 1, 0]
-                    
-                    slc.UpdatePipeline()
-                    slc_display = Show(slc, renderView)
-                    
                     try:
-                        if var in slice_pt_vars:
-                            ColorBy(slc_display, ('POINTS', var))
-                        else:
-                            ColorBy(slc_display, ('CELLS', var))
+                        slc = Slice(Input=slice_input)
+                        slc.SliceType = 'Plane'
                         
-                        slc_display.SetScalarBarVisibility(renderView, True)
-                        slc_display.RescaleTransferFunctionToDataRange(True, False)
+                        # Set slice plane based on axis
+                        if slice_axis == 'x':
+                            slc.SliceType.Normal = [1.0, 0.0, 0.0]
+                            slc.SliceType.Origin = [offset, cy, cz]
+                            cam_pos, view_up = [1, 0, 0], [0, 0, 1]
+                        elif slice_axis == 'y':
+                            slc.SliceType.Normal = [0.0, 1.0, 0.0]
+                            slc.SliceType.Origin = [cx, offset, cz]
+                            cam_pos, view_up = [0, 1, 0], [0, 0, 1]
+                        else:  # z
+                            slc.SliceType.Normal = [0.0, 0.0, 1.0]
+                            slc.SliceType.Origin = [cx, cy, offset]
+                            cam_pos, view_up = [0, 0, 1], [0, 1, 0]
+                        
+                        slc.UpdatePipeline()
+                        slc_display = Show(slc, renderView)
+                        
+                        # Color the slice by variable
+                        try:
+                            if var in slice_pt_vars:
+                                ColorBy(slc_display, ('POINTS', var))
+                            else:
+                                ColorBy(slc_display, ('CELLS', var))
+                            
+                            slc_display.SetScalarBarVisibility(renderView, True)
+                            slc_display.RescaleTransferFunctionToDataRange(True, False)
+                        except Exception as e:
+                            print(f"[WARNING] Could not color by {var}: {e}")
+                        
+                        # Take screenshot
+                        suffix = f"Slice_{slice_axis.upper()}{i + 1}_{var}"
+                        print(f"  -> Snapping: {suffix}")
+                        
+                        snap_view(renderView, suffix, cam_pos, view_up, region_name, [cx, cy, cz], cam_dist,
+                                run_dir, next_run_num, output_resolution, zoom_factor, zoom_center, all_generated_images)
+                        
+                        Hide(slc, renderView)
+                        Delete(slc)
+                        
                     except Exception as e:
-                        pass
-                    
-                    suffix = f"Slice_{slice_axis.upper()}{i + 1}_{var}"
-                    print(f"  -> Snapping image: {suffix}")
-                    
-                    snap_view(renderView, suffix, cam_pos, view_up, region_name, [cx, cy, cz], cam_dist,
-                            run_dir, next_run_num, output_resolution, zoom_factor, zoom_center, all_generated_images)
-                    
-                    Hide(slc, renderView)
-                    Delete(slc)
+                        print(f"[ERROR] Failed to slice: {e}")
             
             Show(region_data, renderView)
-            print(f"[INFO] Finished slicing {region_name}.")
+            slicing_performed = True
+            print(f"[INFO] Finished {slice_axis.upper()}-axis slicing")
     
     # Export region data
     pvd_export_path = os.path.join(run_dir, f"Run_{next_run_num}_{region_name.replace('/', '_')}_summary.pvd")
-    SaveData(pvd_export_path, proxy=region_data)
-    flatten_pvd(pvd_export_path)
+    try:
+        SaveData(pvd_export_path, proxy=region_data)
+        flatten_pvd(pvd_export_path)
+        print(f"[INFO] Exported PVD: {pvd_export_path}")
+    except Exception as e:
+        print(f"[WARNING] Could not export PVD: {e}")
     
-    # 3D rendering for boundaries or non-sliced regions
-    if is_boundary or (not config or "slices" not in config or region_name not in config["slices"]):
+    # ================================================================
+    # 3D RENDERING SECTION
+    # ================================================================
+    
+    should_do_3d = is_boundary or not slicing_performed
+    
+    if should_do_3d:
+        print(f"\n[INFO] Starting 3D rendering for {region_name}")
         HideAll(renderView)
         display = Show(region_data, renderView)
         display.Representation = 'Surface'
         
         region_point_vars, region_cell_vars = list(region_data.PointData.keys()), list(region_data.CellData.keys())
+        print(f"[INFO] Available 3D variables - Point: {region_point_vars}, Cell: {region_cell_vars}")
         
         for var in variables_to_plot:
             if var not in raw_vars:
                 continue
+            
+            # Color by variable
             if var in region_point_vars:
                 ColorBy(display, ('POINTS', var))
+                print(f"[INFO] 3D coloring by POINTS: {var}")
             elif var in region_cell_vars:
                 ColorBy(display, ('CELLS', var))
+                print(f"[INFO] 3D coloring by CELLS: {var}")
             else:
+                print(f"[WARNING] Variable not found: {var}")
                 continue
             
-            display.RescaleTransferFunctionToDataRange(True, False)
-            display.SetScalarBarVisibility(renderView, True)
+            try:
+                display.RescaleTransferFunctionToDataRange(True, False)
+                display.SetScalarBarVisibility(renderView, True)
+            except Exception as e:
+                print(f"[WARNING] Could not set color range: {e}")
             
-            views_to_take = [("front", [1, 0, 0], [0, 0, 1]), ("side", [0, 1, 0], [0, 0, 1]),
-                           ("top", [0, 0, 1], [1, 0, 0]), ("front_iso", [1, 1, 1], [0, 0, 1]),
-                           ("rear_iso", [-1, 1, 1], [0, 0, 1])]
+            # Generate multiple 3D views
+            views_to_take = [
+                ("front", [1, 0, 0], [0, 0, 1]),
+                ("side", [0, 1, 0], [0, 0, 1]),
+                ("top", [0, 0, 1], [1, 0, 0]),
+                ("front_iso", [1, 1, 1], [0, 0, 1]),
+                ("rear_iso", [-1, 1, 1], [0, 0, 1])
+            ]
             
             for v_name, c_pos, c_up in views_to_take:
-                snap_view(renderView, f"{var}_{v_name}", c_pos, c_up, region_name, [cx, cy, cz], cam_dist,
-                        run_dir, next_run_num, output_resolution, zoom_factor, zoom_center, all_generated_images)
+                try:
+                    snap_view(renderView, f"{var}_{v_name}", c_pos, c_up, region_name, [cx, cy, cz], cam_dist,
+                            run_dir, next_run_num, output_resolution, zoom_factor, zoom_center, all_generated_images)
+                except Exception as e:
+                    print(f"[WARNING] Failed snapshot {v_name} for {var}: {e}")
             
             display.SetScalarBarVisibility(renderView, False)
     
     return region_data
-
 
 # ================================================================
 # 6. PDF REPORT GENERATION

@@ -8,10 +8,26 @@
     "pdf_resolution": [1280, 720],
     "slices": {
         "internalMesh": {
-            "axis": "y",
-            "min": -2.0,
-            "max": 5.0,
-            "count": 8
+            "axes": [
+                {
+                    "axis": "x",
+                    "count": 3,
+                    "min": -10.0,
+                    "max": 5.0
+                },
+                {
+                    "axis": "y",
+                    "count": 4,
+                    "min": -5.0,
+                    "max": 5.0
+                },
+                {
+                    "axis": "z",
+                    "count": 5,
+                    "min": 0.0,
+                    "max": 10.0
+                }
+            ]
         }
     },
     "iso_surfaces": [

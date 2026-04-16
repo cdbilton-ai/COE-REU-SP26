@@ -1,0 +1,36 @@
+[2026-04-16 12:13:46] === CFD VISUALIZER DEBUG SESSION STARTED ===
+[2026-04-16 12:14:02] Input path: C:\Users\cashb\OneDrive\Documents\Coding\COE_REU_SP26\Batch_Processing\setup_ansys.json
+[2026-04-16 12:14:02] Loading JSON config: C:\Users\cashb\OneDrive\Documents\Coding\COE_REU_SP26\Batch_Processing\setup_ansys.json
+[2026-04-16 12:14:02] Config loaded successfully: {'input_file': 'C:/Users/cashb/OneDrive - Michigan Technological University/AERE/Ansys Stuff/Injector Sims/results/working_fluent_multiphase.cas', 'resolution': [3840, 2160], 'pdf_resolution': [1280, 720], 'zoom_factor': 1, 'zoom_center': [0.0, 0.0, 0.0], 'variables': ['pressure_coefficient', 'velocity_magnitude', 'vorticity', 'ox_vof', 'fuel_vof'], 'slices': {'Imported_Domain': {'axis': 'z', 'count': 5}}, 'iso_surfaces': [{'create': False, 'variable': 'pressure', 'value': 25.5, 'color_by': 'velocity'}]}
+[2026-04-16 12:14:02] Resolution: [3840, 2160]
+[2026-04-16 12:14:02] Input file exists: C:\Users\cashb\OneDrive - Michigan Technological University\AERE\Ansys Stuff\Injector Sims\results\working_fluent_multiphase.cas
+[2026-04-16 12:14:02] File extension: .cas
+[2026-04-16 12:14:02] Results directory: C:\Users\cashb\OneDrive - Michigan Technological University\AERE\Ansys Stuff\Injector Sims\results\Images
+[2026-04-16 12:14:02] Run directory: C:\Users\cashb\OneDrive - Michigan Technological University\AERE\Ansys Stuff\Injector Sims\results\Images\Run_4
+[2026-04-16 12:14:02] Data structures initialized. Images list: 0
+[2026-04-16 12:14:02] Loading mesh...
+[2026-04-16 12:14:02] Is OpenFOAM: False
+[2026-04-16 12:14:02] Creating OpenDataFile reader (ANSYS)...
+[2026-04-16 12:14:02] ANSYS reader created successfully
+[2026-04-16 12:14:02] ANSYS regions: ['Imported_Domain']
+[2026-04-16 12:14:02] Getting available variables...
+[2026-04-16 12:14:04] Reader pipeline updated
+[2026-04-16 12:14:05] Blocks merged and pipeline updated
+[2026-04-16 12:14:05] Point variables: []
+[2026-04-16 12:14:05] Cell variables: []
+[2026-04-16 12:14:05] All variables: []
+[2026-04-16 12:14:05] Variables to plot: []
+[2026-04-16 12:14:05] Setting up render view...
+[2026-04-16 12:14:05] Render view created with resolution: [3840, 2160]
+[2026-04-16 12:14:05] Starting region rendering...
+[2026-04-16 12:14:05] 
+=== RENDERING REGION: Imported_Domain ===
+[2026-04-16 12:14:05] Bounds: X[-0.12, 0.02], Y[-0.12, 0.02], Z[0.00, 0.00]
+[2026-04-16 12:14:05] Camera distance: 0.50
+[2026-04-16 12:14:05] Available variables - Point: [], Cell: []
+[2026-04-16 12:14:05] 
+=== PDF GENERATION ===
+[2026-04-16 12:14:05] Total images collected: 0
+[2026-04-16 12:14:05] Images: []
+[2026-04-16 12:14:05] ERROR: No images were generated!
+[2026-04-16 12:14:05] === DEBUG SESSION ENDED ===
