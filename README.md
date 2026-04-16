@@ -33,10 +33,18 @@ Download from [paraview.org](https://www.paraview.org/download/) and install nor
 ```bash
 "C:\Program Files\ParaView 5.x.x\bin\pvpython.exe" -m pip install Pillow
 Mac/Linux:
+<<<<<<< HEAD
+=======
+```
+>>>>>>> 0d716417b66824465739286980a0f96596a6b458
 
 ```bash
 /Applications/ParaView-5.x.x.app/Contents/bin/pvpython -m pip install Pillow
 (Replace 5.x.x with your ParaView version)
+<<<<<<< HEAD
+=======
+```
+>>>>>>> 0d716417b66824465739286980a0f96596a6b458
 
 Step 3: Clone or Download This Repository
 ```bash
@@ -45,6 +53,7 @@ cd COE-REU-SP26
 Step 4: Run Using Batch File (Easiest)
 Windows: Double-click run_visualizer.bat
 Linux/Mac: Run ./run_visualizer.sh
+<<<<<<< HEAD
 
 Or manually:
 
@@ -195,6 +204,173 @@ Images/
 The script renders 5 standard camera angles by default. To modify or add views, edit the views_to_take list in the rendering sections:
 
 Python
+=======
+```
+Or manually:
+
+```bash
+pvpython cfd_visualizer.py setup.json
+```
+📋 Prerequisites & Installation
+System Requirements
+ParaView 5.8+ (with bundled Python 3.6+)
+Python 3.6+ (ParaView's bundled version)
+4GB RAM minimum (8GB+ recommended for 4K resolution)
+1GB free disk space (per simulation output)
+Required Python Libraries
+Library	Purpose	Installation
+paraview.simple	3D visualization & rendering	Included with ParaView
+Pillow (PIL)	PDF creation & image processing	See Step 2 above
+matplotlib	Force coefficient graphing (optional)	pvpython -m pip install matplotlib
+Verify Installation
+```bash
+pvpython -c "from paraview.simple import *; from PIL import Image; print('✓ All libraries installed')"
+```
+💻 Usage Guide
+Method 1: Interactive Mode (No Config File)
+```bash
+pvpython cfd_visualizer.py
+```
+The script will prompt you for:
+
+CFD file path - Drag and drop your .foam, .simpleFoam, or .encas file
+Regions (OpenFOAM only) - Enter region numbers to analyze (e.g., 0, 3)
+Variables - Select which fields to visualize (e.g., p, U, k)
+Slicing - Choose slice axis (x, y, z) or render 3D
+Method 2: Automated Mode with JSON Config (Recommended)
+Create or modify a JSON configuration file:
+```JSON
+JSON
+{
+    "input_file": "/path/to/case/motor_bike.foam",
+    "resolution": [3840, 2160],
+    "pdf_resolution": [816, 1056],
+    "zoom_factor": 1.0,
+    "zoom_center": [0.0, 0.0, 0.0],
+    
+    "regions": ["internalMesh"],
+    "variables": ["p", "U"],
+    
+    "slices": {
+        "internalMesh": {
+            "axis": "y",
+            "min": -2.0,
+            "max": 5.0,
+            "count": 8
+        }
+    },
+    
+    "iso_surfaces": [
+        {
+            "create": true,
+            "variable": "p",
+            "value": 0.0,
+            "color_by": "U"
+        }
+    ]
+}
+```
+Run with config:
+
+```bash
+pvpython cfd_visualizer.py setup.json
+```
+Or use the batch file:
+
+```bash
+run_visualizer.bat
+```
+JSON Configuration Parameters
+```JSON
+
+
+input_file    string	Path to CFD data file	/path/to/case.foam
+
+resolution    [int, int]    Screenshot resolution (width × height)	[3840, 2160]
+
+pdf_resolution    [int, int]	PDF page size in pixels	[816, 1056] (letter size)
+
+zoom_factor    float	Camera zoom (>1 = zoom in)	1.0 (default), 1.5 (zoomed)
+
+zoom_center    [x, y, z]	Custom zoom focal point	[0.0, 0.0, 0.0]
+
+regions    [string]	Mesh regions to analyze	["internalMesh"]
+
+variables	[string]	Variables to visualize	["p", "U", "k"]
+```
+Slicing Configuration:
+
+```JSON
+"slices": {
+    "internalMesh": {
+        "axis": "y",           // x, y, or z
+        "min": -2.0,           // Min position on axis
+        "max": 5.0,            // Max position on axis
+        "count": 8             // Number of slices
+    }
+}
+```
+Iso-Surface Configuration:
+
+```JSON
+"iso_surfaces": [
+    {
+        "create": true,
+        "variable": "p",       // Variable to contour
+        "value": 0.0,          // Iso-value
+        "color_by": "U"        // Optional coloring variable
+    }
+]
+```
+📂 Expected File Structure
+OpenFOAM Case Folder
+For metadata extraction (Force Coefficients, Cell Count, Solver Info), organize as:
+
+Code
+motorBike/
+├── motorBike.foam                 ← Main file (drag into script)
+├── log.simpleFoam                 ← Log file (solver version, date)
+├── system/
+│   ├── controlDict                ← Reference Area (Aref)
+│   └── forceCoeffs                ← Force settings
+└── postProcessing/
+    └── forceCoeffs/
+        ├── 0/
+        │   └── coefficient.dat    ← Force data (for graphing)
+        └── constant/
+            └── coefficient.dat
+ANSYS EnSight Case Folder
+Code
+simulation/
+├── results.encas                  ← Main file (drag into script)
+├── results.geom                   ← Geometry file
+└── results.0000.p                 ← Pressure data
+    results.0000.u                 ← Velocity data
+    results.0000.k                 ← Turbulence data (if available)
+📊 Output Files
+All outputs are saved in {case_directory}/Images/Run_{N}/:
+
+File	Description
+Run_X_Report.pdf	Final report - Cover page with metadata + all screenshots
+Run_X_state.pvsm	ParaView state file (can be opened to recreate visualization)
+Run_X_*_summary.pvd	Region data export in ParaView format
+Run_X_IsoSurface_*.pvd	Iso-surface data export
+Run_X_ForceCoeffs.png	Force coefficient history graph (OpenFOAM only)
+Example Output Directory
+Code
+Images/
+├── Run_1/
+│   ├── Run_1_Report.pdf
+│   ├── Run_1_state.pvsm
+│   ├── Run_1_internalMesh_summary.pvd
+│   └── Run_1_IsoSurface_p_0.0.pvd
+├── Run_2/
+└── Run_3/
+🎥 Customizing Camera Views
+The script renders 5 standard camera angles by default. To modify or add views, edit the views_to_take list in the rendering sections:
+
+```Python
+>>>>>>> 0d716417b66824465739286980a0f96596a6b458
 views_to_take = [
     ("front",     [1, 0, 0],   [0, 0, 1]),  # X-axis view, Z up
     ("side",      [0, 1, 0],   [0, 0, 1]),  # Y-axis view, Z up
@@ -202,10 +378,19 @@ views_to_take = [
     ("front_iso", [1, 1, 1],   [0, 0, 1]),  # Isometric
     ("rear_iso",  [-1, 1, 1],  [0, 0, 1])   # Reverse isometric
 ]
+<<<<<<< HEAD
 Adding a Custom View:
 
 Python
 ("bottom_iso", [-1, -1, -1], [0, 0, 1])  # Bottom isometric view
+=======
+```
+Adding a Custom View:
+
+```Python
+("bottom_iso", [-1, -1, -1], [0, 0, 1])  # Bottom isometric view
+```
+>>>>>>> 0d716417b66824465739286980a0f96596a6b458
 The format is: ("view_name", [camera_direction], [up_vector])
 
 📜 Code Architecture
@@ -227,13 +412,23 @@ Geo_Parameters.py - Extract geometric properties from CFD data
 run_visualizer.bat - Windows batch launcher with menu options
 🔧 Advanced Usage
 Multi-Region Analysis
+<<<<<<< HEAD
 JSON
+=======
+```JSON
+>>>>>>> 0d716417b66824465739286980a0f96596a6b458
 {
     "regions": ["internalMesh", "motorBike_body", "motorBike_wheels"],
     "variables": ["p", "U", "nuT"]
 }
+<<<<<<< HEAD
 Multiple Iso-Surfaces
 JSON
+=======
+```
+Multiple Iso-Surfaces
+```JSON
+>>>>>>> 0d716417b66824465739286980a0f96596a6b458
 {
     "iso_surfaces": [
         {"create": true, "variable": "p", "value": 0.0, "color_by": "U"},
@@ -241,16 +436,30 @@ JSON
         {"create": true, "variable": "nuT", "value": 0.5, "color_by": null}
     ]
 }
+<<<<<<< HEAD
 High-Resolution Output
 JSON
+=======
+```
+High-Resolution Output
+```JSON
+>>>>>>> 0d716417b66824465739286980a0f96596a6b458
 {
     "resolution": [7680, 4320],        // 8K screenshots
     "pdf_resolution": [1200, 1600]     // Large PDF pages
 }
+<<<<<<< HEAD
 Batch Processing Multiple Cases
 Create a Python script:
 
 Python
+=======
+```
+Batch Processing Multiple Cases
+Create a Python script:
+
+```Python
+>>>>>>> 0d716417b66824465739286980a0f96596a6b458
 import json
 import subprocess
 import os
@@ -268,6 +477,10 @@ for case in cases:
         json.dump(config, f)
     
     subprocess.run(["pvpython", "cfd_visualizer.py", f"{case}_config.json"])
+<<<<<<< HEAD
+=======
+```
+>>>>>>> 0d716417b66824465739286980a0f96596a6b458
 🐛 Troubleshooting
 Issue	Solution
 "Pillow not found" error	Run: pvpython -m pip install Pillow
@@ -280,18 +493,32 @@ Memory issues	Reduce screenshot resolution or process smaller regions separately
 Example 1: Quick Visualization (Interactive)
 ```bash
 pvpython cfd_visualizer.py
+<<<<<<< HEAD
+=======
+```
+>>>>>>> 0d716417b66824465739286980a0f96596a6b458
 # Follow prompts to select file, regions, and variables
 Example 2: MotorBike Case (with Config)
 ```bash
 pvpython cfd_visualizer.py setup.json
+<<<<<<< HEAD
 Example 3: ANSYS Case with Custom Zoom
 JSON
+=======
+```
+Example 3: ANSYS Case with Custom Zoom
+```JSON
+>>>>>>> 0d716417b66824465739286980a0f96596a6b458
 {
     "input_file": "/data/simulation/results.encas",
     "zoom_factor": 1.5,
     "zoom_center": [5.0, 2.5, 0.0],
     "variables": ["pressure", "velocity"]
 }
+<<<<<<< HEAD
+=======
+```
+>>>>>>> 0d716417b66824465739286980a0f96596a6b458
 📚 Resources
 ParaView Documentation: https://www.paraview.org/documentation/
 OpenFOAM User Guide: https://cfd.direct/openfoam/user-guide/
@@ -305,4 +532,8 @@ cashb (cdbilton-ai)
 Michigan Technological University
 College of Engineering REU - SP26
 
+<<<<<<< HEAD
 For questions or issues, open an issue on GitHub.
+=======
+For questions or issues, open an issue on GitHub.
+>>>>>>> 0d716417b66824465739286980a0f96596a6b458
